@@ -1,14 +1,16 @@
 from flask import Flask, request, render_template_string, Response
 import hashlib
-import sqlite3
+import os
+import psycopg2
 from datetime import datetime
 import csv
 import io
 
 app = Flask(__name__)
-DB_NAME = 'acessos_phishing.db'
-TOKEN_SECRETO = 'senha_tcc_123' #token para baixar o banco de dados em .CSV
 
+#pega a URL de conexão do banco configurada no Render
+DATABASE_URL = os.environ.get('DATABASE_URL')
+TOKEN_SECRETO = 'senha_tcc_123' #token para baixar o banco de dados em .CSV
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -45,19 +47,32 @@ HTML_TEMPLATE = """
 </html>
 """
 
+def get_db_connection():
+    # Se a URL não estiver configurada (ex: rodando local sem configurar), retorna None para evitar quebra
+    if not DATABASE_URL:
+        print("AVISO: DATABASE_URL não configurada!")
+        return None
+    return psycopg2.connect(DATABASE_URL)
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
+    if conn is None:
+        return
+        
     cursor = conn.cursor()
+    # Sintaxe do PostgreSQL: SERIAL para auto-incremento, TIMESTAMP para data/hora
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS acessos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             ip_hash TEXT UNIQUE,
-            data_acesso DATETIME
+            data_acesso TIMESTAMP
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
+# Inicializa o banco assim que o app sobe
 init_db()
 
 @app.route('/')
@@ -72,19 +87,24 @@ def index():
     if ip_usuario:
         ip_hash = hashlib.sha256(ip_usuario.encode('utf-8')).hexdigest()
         
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT OR IGNORE INTO acessos (ip_hash, data_acesso) 
-            VALUES (?, ?)
-        ''', (ip_hash, datetime.now()))
-        conn.commit()
-        
-        cursor.execute('SELECT COUNT(*) FROM acessos')
-        total_cliques = cursor.fetchone()[0]
-        
-        conn.close()
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            
+            # Sintaxe do PostgreSQL para ignorar duplicatas: ON CONFLICT DO NOTHING
+            # Os placeholders no Postgres usam %s em vez de ?
+            cursor.execute('''
+                INSERT INTO acessos (ip_hash, data_acesso) 
+                VALUES (%s, %s)
+                ON CONFLICT (ip_hash) DO NOTHING
+            ''', (ip_hash, datetime.now()))
+            conn.commit()
+            
+            cursor.execute('SELECT COUNT(*) FROM acessos')
+            total_cliques = cursor.fetchone()[0]
+            
+            cursor.close()
+            conn.close()
         
     return render_template_string(HTML_TEMPLATE, total_cliques=total_cliques)
 
@@ -94,10 +114,15 @@ def exportar_dados():
     if token_fornecido != TOKEN_SECRETO:
         return "Acesso negado. Token inválido ou ausente.", 403
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
+    if not conn:
+        return "Erro de conexão com o banco de dados.", 500
+        
     cursor = conn.cursor()
     cursor.execute('SELECT id, ip_hash, data_acesso FROM acessos ORDER BY data_acesso ASC')
     registros = cursor.fetchall()
+    
+    cursor.close()
     conn.close()
 
     saida_csv = io.StringIO()
@@ -110,6 +135,5 @@ def exportar_dados():
     
     return resposta
 
-# Mantemos o if __name__ apenas para quando você for rodar e testar localmente no seu PC
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
