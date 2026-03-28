@@ -9,6 +9,7 @@ app = Flask(__name__)
 DB_NAME = 'acessos_phishing.db'
 TOKEN_SECRETO = 'senha_tcc_123' #token para baixar o banco de dados em .CSV
 
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -57,6 +58,8 @@ def init_db():
     conn.commit()
     conn.close()
 
+init_db()
+
 @app.route('/')
 def index():
     ip_usuario = request.headers.get('X-Forwarded-For', request.remote_addr)
@@ -85,38 +88,28 @@ def index():
         
     return render_template_string(HTML_TEMPLATE, total_cliques=total_cliques)
 
-# --- NOVA ROTA DE EXPORTAÇÃO ---
 @app.route('/exportar-dados')
 def exportar_dados():
-    # Verifica se o token passado na URL está correto
     token_fornecido = request.args.get('token')
-    
     if token_fornecido != TOKEN_SECRETO:
         return "Acesso negado. Token inválido ou ausente.", 403
 
-    # Conecta ao banco e pega todos os registros
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT id, ip_hash, data_acesso FROM acessos ORDER BY data_acesso ASC')
     registros = cursor.fetchall()
     conn.close()
 
-    # Cria um arquivo CSV em memória
     saida_csv = io.StringIO()
     escritor = csv.writer(saida_csv)
-    
-    # Escreve o cabeçalho
     escritor.writerow(['ID', 'Hash_do_IP', 'Data_e_Hora_do_Acesso'])
-    
-    # Escreve as linhas de dados
     escritor.writerows(registros)
 
-    # Prepara a resposta HTTP para forçar o download do arquivo
     resposta = Response(saida_csv.getvalue(), mimetype='text/csv')
     resposta.headers["Content-Disposition"] = "attachment; filename=dados_phishing.csv"
     
     return resposta
 
+# Mantemos o if __name__ apenas para quando você for rodar e testar localmente no seu PC
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True, host='0.0.0.0', port=5000)
