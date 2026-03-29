@@ -8,9 +8,9 @@ import io
 
 app = Flask(__name__)
 
-#pega a URL de conexão do banco configurada no Render
+# pega a URL de conexão do banco configurada no Render
 DATABASE_URL = os.environ.get('DATABASE_URL')
-TOKEN_SECRETO = 'senha_tcc_123' #token para baixar o banco de dados em .CSV
+TOKEN_SECRETO = 'senha_tcc_123' # token para baixar o banco de dados em .CSV
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -48,7 +48,6 @@ HTML_TEMPLATE = """
 """
 
 def get_db_connection():
-    # Se a URL não estiver configurada (ex: rodando local sem configurar), retorna None para evitar quebra
     if not DATABASE_URL:
         print("AVISO: DATABASE_URL não configurada!")
         return None
@@ -60,7 +59,7 @@ def init_db():
         return
         
     cursor = conn.cursor()
-    # Sintaxe do PostgreSQL: SERIAL para auto-incremento, TIMESTAMP para data/hora
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS acessos (
             id SERIAL PRIMARY KEY,
@@ -72,7 +71,7 @@ def init_db():
     cursor.close()
     conn.close()
 
-# Inicializa o banco assim que o app sobe
+# inicializa o banco assim que o app sobe
 init_db()
 
 @app.route('/')
@@ -91,8 +90,6 @@ def index():
         if conn:
             cursor = conn.cursor()
             
-            # Sintaxe do PostgreSQL para ignorar duplicatas: ON CONFLICT DO NOTHING
-            # Os placeholders no Postgres usam %s em vez de ?
             cursor.execute('''
                 INSERT INTO acessos (ip_hash, data_acesso) 
                 VALUES (%s, %s)
@@ -134,6 +131,10 @@ def exportar_dados():
     resposta.headers["Content-Disposition"] = "attachment; filename=dados_phishing.csv"
     
     return resposta
+
+@app.route('/ping') #rota criada para manter o servidor do Render sempre acordado
+def ping():
+    return "Estou acordado!", 200
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
